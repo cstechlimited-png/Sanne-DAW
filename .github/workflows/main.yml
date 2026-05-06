@@ -1,0 +1,51 @@
+      - name: Install AppImage tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget file desktop-file-utils fuse
+
+          # AppImageTool
+          wget https://github.com/AppImage/AppImageKit/releases/latest/download/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          sudo mv appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
+
+      - name: Prepare AppDir structure
+        run: |
+          mkdir -p AppDir/usr
+
+          # Move installed files into AppDir
+          cp -r dist/* AppDir/usr/
+
+      - name: Create desktop file
+        run: |
+          mkdir -p AppDir
+
+          cat > AppDir/sanne-daw.desktop <<EOF
+          [Desktop Entry]
+          Name=Sanne DAW
+          Exec=usr/bin/ardour6
+          Icon=sanne-daw
+          Type=Application
+          Categories=AudioVideo;Audio;
+          EOF
+
+      - name: Add icon (placeholder)
+        run: |
+          # Replace with real icon from Ardour resources later
+          cp gtk2_ardour/icons/ardour_icon_256px.png AppDir/sanne-daw.png || true
+
+      - name: Generate AppRun
+        run: |
+          cat > AppDir/AppRun <<'EOF'
+          #!/bin/bash
+          SELF=$(readlink -f "$0")
+          HERE=${SELF%/*}
+
+          export LD_LIBRARY_PATH="$HERE/usr/lib:$LD_LIBRARY_PATH"
+          exec "$HERE/usr/bin/ardour6" "$@"
+          EOF
+
+          chmod +x AppDir/AppRun
+
+      - name: Build AppImage
+        run: |
+          ARCH=x86_64 appimagetool AppDir Sanne-DAW-x86_64.AppImage
