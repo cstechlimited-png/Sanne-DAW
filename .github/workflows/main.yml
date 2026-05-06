@@ -1,51 +1,92 @@
-      - name: Install AppImage tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget file desktop-file-utils fuse
+- name: Install AppImage tooling
+  run: |
+    set -euo pipefail
 
-          # AppImageTool
-          wget https://github.com/AppImage/AppImageKit/releases/latest/download/appimagetool-x86_64.AppImage
-          chmod +x appimagetool-x86_64.AppImage
-          sudo mv appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
+    sudo apt-get update
+    sudo apt-get install -y \
+      wget \
+      file \
+      desktop-file-utils \
+      fuse
 
-      - name: Prepare AppDir structure
-        run: |
-          mkdir -p AppDir/usr
+    # Install AppImageTool (pinned for reproducibility)
+    APPIMAGE_TOOL_VERSION="continuous"
+    wget -q https://github.com/AppImage/AppImageKit/releases/download/${APPIMAGE_TOOL_VERSION}/appimagetool-x86_64.AppImage
 
-          # Move installed files into AppDir
-          cp -r dist/* AppDir/usr/
+    chmod +x appimagetool-x86_64.AppImage
+    sudo mv appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
 
-      - name: Create desktop file
-        run: |
-          mkdir -p AppDir
+- name: Prepare AppDir
+  run: |
+    set -euo pipefail
 
-          cat > AppDir/sanne-daw.desktop <<EOF
-          [Desktop Entry]
-          Name=Sanne DAW
-          Exec=usr/bin/ardour6
-          Icon=sanne-daw
-          Type=Application
-          Categories=AudioVideo;Audio;
-          EOF
+    mkdir -p AppDir/usr
 
-      - name: Add icon (placeholder)
-        run: |
-          # Replace with real icon from Ardour resources later
-          cp gtk2_ardour/icons/ardour_icon_256px.png AppDir/sanne-daw.png || true
+    if [ ! -d "dist" ]; then
+      echo "❌ dist directory not found"
+      exit 1
+    fi
 
-      - name: Generate AppRun
-        run: |
-          cat > AppDir/AppRun <<'EOF'
-          #!/bin/bash
-          SELF=$(readlink -f "$0")
-          HERE=${SELF%/*}
+    cp -r dist/. AppDir/usr/
 
-          export LD_LIBRARY_PATH="$HERE/usr/lib:$LD_LIBRARY_PATH"
-          exec "$HERE/usr/bin/ardour6" "$@"
-          EOF
+- name: Create desktop entry
+  run: |
+    set -euo pipefail
 
-          chmod +x AppDir/AppRun
+    cat > AppDir/sanne-daw.desktop <<EOF
+[Desktop Entry]
+Name=Sanne DAW
+Exec=usr/bin/ardour6
+Icon=sanne-daw
+Type=Application
+Categories=AudioVideo;Audio;
+EOF
 
-      - name: Build AppImage
-        run: |
-          ARCH=x86_64 appimagetool AppDir Sanne-DAW-x86_64.AppImage
+    desktop-file-validate AppDir/sanne-daw.desktop
+
+- name: Add application icon
+  run: |
+    set -euo pipefail
+
+    ICON_SRC="gtk2_ardour/icons/ardour_icon_256px.png"
+
+    if [ -f "$ICON_SRC" ]; then
+      cp "$ICON_SRC" AppDir/sanne-daw.png
+    else
+      echo "⚠️ Icon not found, continuing without custom icon"
+    fi
+
+- name: Create AppRun launcher
+  run: |
+    set -euo pipefail
+
+    cat > AppDir/AppRun <<'EOF'
+#!/usr/bin/env bash
+set -e
+
+HERE="$(dirname "$(readlink -f "$0")")"
+
+export LD_LIBRARY_PATH="$HERE/usr/lib:$LD_LIBRARY_PATH"
+exec "$HERE/usr/bin/ardour6" "$@"
+EOF
+
+    chmod +x AppDir/AppRun
+
+- name: Validate AppDir structure
+  run: |
+    set -euo pipefail
+
+    test -f AppDir/AppRun
+    test -f AppDir/sanne-daw.desktop
+
+- name: Build AppImage
+  run: |
+    set -euo pipefail
+
+    ARCH=x86_64 appimagetool AppDir Sanne-DAW-x86_64.AppImage
+
+- name: Upload artifact
+  uses: actions/upload-artifact@v4
+  with:
+    name: Sanne-DAW-AppImage
+    path: Sanne-DAW-x86_64.AppImage
