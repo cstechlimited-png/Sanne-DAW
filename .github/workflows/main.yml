@@ -1,66 +1,78 @@
-- name: Install AppImage tooling
-  run: |
-    set -euo pipefail
+name: Build AppImage
 
-    sudo apt-get update
-    sudo apt-get install -y \
-      wget \
-      file \
-      desktop-file-utils \
-      fuse
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
-    # Install AppImageTool (pinned for reproducibility)
-    APPIMAGE_TOOL_VERSION="continuous"
-    wget -q https://github.com/AppImage/AppImageKit/releases/download/${APPIMAGE_TOOL_VERSION}/appimagetool-x86_64.AppImage
+jobs:
+  build-appimage:
+    runs-on: ubuntu-latest
 
-    chmod +x appimagetool-x86_64.AppImage
-    sudo mv appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-- name: Prepare AppDir
-  run: |
-    set -euo pipefail
+      - name: Install AppImage tooling
+        run: |
+          set -euo pipefail
 
-    mkdir -p AppDir/usr
+          sudo apt-get update
+          sudo apt-get install -y \
+            wget \
+            file \
+            desktop-file-utils \
+            fuse
 
-    if [ ! -d "dist" ]; then
-      echo "❌ dist directory not found"
-      exit 1
-    fi
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          sudo mv appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
 
-    cp -r dist/. AppDir/usr/
+      - name: Prepare AppDir
+        run: |
+          set -euo pipefail
 
-- name: Create desktop entry
-  run: |
-    set -euo pipefail
+          mkdir -p AppDir/usr
 
-    cat > AppDir/sanne-daw.desktop <<EOF
+          if [ ! -d "dist" ]; then
+            echo "❌ dist directory not found"
+            exit 1
+          fi
+
+          cp -r dist/. AppDir/usr/
+
+      - name: Create desktop file
+        run: |
+          set -euo pipefail
+
+          cat > AppDir/sanne-daw.desktop <<'EOF'
 [Desktop Entry]
 Name=Sanne DAW
 Exec=usr/bin/ardour6
-Icon=sanne-daw
+Icon=image
 Type=Application
 Categories=AudioVideo;Audio;
 EOF
 
-    desktop-file-validate AppDir/sanne-daw.desktop
+          desktop-file-validate AppDir/sanne-daw.desktop
 
-- name: Add application icon
-  run: |
-    set -euo pipefail
+      - name: Add application icon
+        run: |
+          set -euo pipefail
 
-    ICON_SRC="gtk2_ardour/icons/ardour_icon_256px.png"
+          if [ -f "image.png" ]; then
+            cp image.png AppDir/image.png
+          else
+            echo "❌ image.png not found in repository root"
+            exit 1
+          fi
 
-    if [ -f "$ICON_SRC" ]; then
-      cp "$ICON_SRC" AppDir/sanne-daw.png
-    else
-      echo "⚠️ Icon not found, continuing without custom icon"
-    fi
+      - name: Create AppRun launcher
+        run: |
+          set -euo pipefail
 
-- name: Create AppRun launcher
-  run: |
-    set -euo pipefail
-
-    cat > AppDir/AppRun <<'EOF'
+          cat > AppDir/AppRun <<'EOF'
 #!/usr/bin/env bash
 set -e
 
@@ -70,23 +82,24 @@ export LD_LIBRARY_PATH="$HERE/usr/lib:$LD_LIBRARY_PATH"
 exec "$HERE/usr/bin/ardour6" "$@"
 EOF
 
-    chmod +x AppDir/AppRun
+          chmod +x AppDir/AppRun
 
-- name: Validate AppDir structure
-  run: |
-    set -euo pipefail
+      - name: Validate AppDir
+        run: |
+          set -euo pipefail
 
-    test -f AppDir/AppRun
-    test -f AppDir/sanne-daw.desktop
+          test -f AppDir/AppRun
+          test -f AppDir/sanne-daw.desktop
+          test -f AppDir/image.png
 
-- name: Build AppImage
-  run: |
-    set -euo pipefail
+      - name: Build AppImage
+        run: |
+          set -euo pipefail
 
-    ARCH=x86_64 appimagetool AppDir Sanne-DAW-x86_64.AppImage
+          ARCH=x86_64 appimagetool AppDir Sanne-DAW-x86_64.AppImage
 
-- name: Upload artifact
-  uses: actions/upload-artifact@v4
-  with:
-    name: Sanne-DAW-AppImage
-    path: Sanne-DAW-x86_64.AppImage
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sanne-DAW-AppImage
+          path: Sanne-DAW-x86_64.AppImage
