@@ -34,21 +34,16 @@ jobs:
             patchelf \
             zsync
 
-      - name: Download linuxdeploy tools
+      - name: Download linuxdeploy
         shell: bash
         run: |
           set -euo pipefail
 
           wget -q \
             https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage \
-            -O linuxdeploy
+            -O linuxdeploy.AppImage
 
-          wget -q \
-            https://github.com/linuxdeploy/linuxdeploy-plugin-gtk/releases/download/continuous/linuxdeploy-plugin-gtk.sh \
-            -O linuxdeploy-plugin-gtk.sh
-
-          chmod +x linuxdeploy
-          chmod +x linuxdeploy-plugin-gtk.sh
+          chmod +x linuxdeploy.AppImage
 
       - name: Prepare AppDir
         shell: bash
@@ -69,11 +64,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "📂 Listing binaries:"
+          echo "📂 Available binaries:"
           find AppDir/usr/bin -type f || true
 
           if [ ! -f "AppDir/usr/bin/${BINARY_NAME}" ]; then
-            echo "❌ Binary AppDir/usr/bin/${BINARY_NAME} not found"
+            echo "❌ Missing binary: AppDir/usr/bin/${BINARY_NAME}"
             exit 1
           fi
 
@@ -84,18 +79,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          cat > "AppDir/${APP_NAME}.desktop" <<'EOF'
-          [Desktop Entry]
-          Name=Sanne DAW
-          Exec=ardour6
-          Icon=sanne-daw
-          Type=Application
-          Categories=AudioVideo;Audio;
-          Terminal=false
-          StartupWMClass=Ardour
-          EOF
-
-          sed -i 's/^          //' "AppDir/${APP_NAME}.desktop"
+          cat > "AppDir/${APP_NAME}.desktop" <<EOF
+[Desktop Entry]
+Name=Sanne DAW
+Exec=${BINARY_NAME}
+Icon=sanne-daw
+Type=Application
+Categories=AudioVideo;Audio;
+Terminal=false
+StartupWMClass=Ardour
+EOF
 
           desktop-file-validate "AppDir/${APP_NAME}.desktop"
 
@@ -104,12 +97,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -f "image.png" ]; then
-            cp image.png AppDir/sanne-daw.png
-          else
+          if [ ! -f "image.png" ]; then
             echo "❌ image.png not found in repository root"
             exit 1
           fi
+
+          cp image.png AppDir/sanne-daw.png
 
       - name: Create AppRun
         shell: bash
@@ -117,17 +110,15 @@ jobs:
           set -euo pipefail
 
           cat > AppDir/AppRun <<EOF
-          #!/usr/bin/env bash
-          set -e
+#!/usr/bin/env bash
+set -e
 
-          HERE="\$(dirname "\$(readlink -f "\$0")")"
+HERE="\$(dirname "\$(readlink -f "\$0")")"
 
-          export LD_LIBRARY_PATH="\$HERE/usr/lib:\$HERE/usr/lib64:\$HERE/usr/lib/x86_64-linux-gnu:\$LD_LIBRARY_PATH"
+export LD_LIBRARY_PATH="\$HERE/usr/lib:\$HERE/usr/lib64:\$HERE/usr/lib/x86_64-linux-gnu:\$LD_LIBRARY_PATH"
 
-          exec "\$HERE/usr/bin/${BINARY_NAME}" "\$@"
-          EOF
-
-          sed -i 's/^          //' AppDir/AppRun
+exec "\$HERE/usr/bin/${BINARY_NAME}" "\$@"
+EOF
 
           chmod +x AppDir/AppRun
 
@@ -139,20 +130,18 @@ jobs:
           echo "📂 AppDir structure:"
           find AppDir | sort
 
-      - name: Bundle shared libraries
+      - name: Build AppImage
         shell: bash
-        env:
-          DEPLOY_GTK_VERSION: 3
         run: |
           set -euo pipefail
 
-          export OUTPUT=appimage
+          export ARCH=x86_64
 
-          ./linuxdeploy \
+          ./linuxdeploy.AppImage \
+            --appimage-extract-and-run \
             --appdir AppDir \
             --desktop-file "AppDir/${APP_NAME}.desktop" \
             --icon-file AppDir/sanne-daw.png \
-            --plugin gtk \
             --output appimage
 
       - name: Validate generated AppImage
@@ -160,7 +149,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          ls -lah *.AppImage || true
+          echo "📦 Generated files:"
+          ls -lah
 
           APPIMAGE_FILE=$(find . -maxdepth 1 -name "*.AppImage" | head -n 1)
 
