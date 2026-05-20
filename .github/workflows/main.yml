@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install build dependencies
         shell: bash
@@ -31,6 +33,7 @@ jobs:
             wget \
             curl \
             python3 \
+            python3-dev \
             pkg-config \
             libgtk2.0-dev \
             libglib2.0-dev \
@@ -99,7 +102,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          ./waf -j$(nproc)
+          ./waf -j"$(nproc)"
+
+      - name: Debug build output
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "📂 Build tree:"
+          find build | sort || true
 
       - name: Locate Ardour binary
         shell: bash
@@ -108,19 +119,18 @@ jobs:
 
           BIN_PATH=$(find build \
             -type f \
-            -name "${BINARY_NAME}" \
+            \( -name "ardour6" -o -name "ardour7" -o -name "ardour8" \) \
             | head -n 1 || true)
 
           if [ -z "$BIN_PATH" ]; then
-            echo "❌ Could not find compiled ${BINARY_NAME}"
-            find build | sort
+            echo "❌ Could not locate Ardour executable"
             exit 1
           fi
 
           echo "✅ Found binary:"
           echo "$BIN_PATH"
 
-          echo "BIN_PATH=$BIN_PATH" >> $GITHUB_ENV
+          echo "BIN_PATH=$BIN_PATH" >> "$GITHUB_ENV"
 
       - name: Prepare AppDir
         shell: bash
@@ -136,6 +146,14 @@ jobs:
           cp "$BIN_PATH" "AppDir/usr/bin/${BINARY_NAME}"
 
           chmod +x "AppDir/usr/bin/${BINARY_NAME}"
+
+          if [ -d "gtk2_ardour" ]; then
+            cp -r gtk2_ardour AppDir/usr/share/
+          fi
+
+          if [ -d "share" ]; then
+            cp -r share AppDir/usr/
+          fi
 
       - name: Add application icon
         shell: bash
@@ -154,16 +172,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          cat > AppDir/${APP_NAME}.desktop <<EOF
-[Desktop Entry]
-Name=Sanne DAW
-Exec=${BINARY_NAME}
-Icon=sanne-daw
-Type=Application
-Categories=AudioVideo;Audio;
-Terminal=false
-StartupWMClass=Ardour
-EOF
+          cat > AppDir/${APP_NAME}.desktop <<'EOF'
+          [Desktop Entry]
+          Name=Sanne DAW
+          Exec=ardour6
+          Icon=sanne-daw
+          Type=Application
+          Categories=AudioVideo;Audio;
+          Terminal=false
+          StartupWMClass=Ardour
+          EOF
+
+          sed -i 's/^          //' AppDir/${APP_NAME}.desktop
 
           desktop-file-validate AppDir/${APP_NAME}.desktop
 
@@ -172,18 +192,28 @@ EOF
         run: |
           set -euo pipefail
 
-          cat > AppDir/AppRun <<EOF
-#!/usr/bin/env bash
-set -e
+          cat > AppDir/AppRun <<'EOF'
+          #!/usr/bin/env bash
+          set -e
 
-HERE="\$(dirname "\$(readlink -f "\$0")")"
+          HERE="$(dirname "$(readlink -f "$0")")"
 
-export LD_LIBRARY_PATH="\$HERE/usr/lib:\$HERE/usr/lib64:\$HERE/usr/lib/x86_64-linux-gnu:\$LD_LIBRARY_PATH"
+          export LD_LIBRARY_PATH="$HERE/usr/lib:$HERE/usr/lib64:$HERE/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"
 
-exec "\$HERE/usr/bin/${BINARY_NAME}" "\$@"
-EOF
+          exec "$HERE/usr/bin/ardour6" "$@"
+          EOF
+
+          sed -i 's/^          //' AppDir/AppRun
 
           chmod +x AppDir/AppRun
+
+      - name: Debug AppDir
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "📂 AppDir structure:"
+          find AppDir | sort
 
       - name: Build AppImage
         shell: bash
@@ -198,6 +228,24 @@ EOF
             --desktop-file AppDir/${APP_NAME}.desktop \
             --icon-file AppDir/sanne-daw.png \
             --output appimage
+
+      - name: Validate generated AppImage
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "📦 Generated files:"
+          ls -lah
+
+          APPIMAGE=$(find . -maxdepth 1 -name "*.AppImage" | head -n 1)
+
+          if [ -z "$APPIMAGE" ]; then
+            echo "❌ AppImage not generated"
+            exit 1
+          fi
+
+          echo "✅ AppImage generated:"
+          echo "$APPIMAGE"
 
       - name: Upload AppImage
         uses: actions/upload-artifact@v4
