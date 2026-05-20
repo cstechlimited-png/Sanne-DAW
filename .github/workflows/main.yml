@@ -41,9 +41,9 @@ jobs:
 
           wget -q \
             https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage \
-            -O linuxdeploy.AppImage
+            -O linuxdeploy
 
-          chmod +x linuxdeploy.AppImage
+          chmod +x linuxdeploy
 
       - name: Prepare AppDir
         shell: bash
@@ -64,11 +64,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "📂 Available binaries:"
+          echo "📂 Listing binaries:"
           find AppDir/usr/bin -type f || true
 
           if [ ! -f "AppDir/usr/bin/${BINARY_NAME}" ]; then
-            echo "❌ Missing binary: AppDir/usr/bin/${BINARY_NAME}"
+            echo "❌ Binary AppDir/usr/bin/${BINARY_NAME} not found"
             exit 1
           fi
 
@@ -79,16 +79,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          cat > "AppDir/${APP_NAME}.desktop" <<EOF
-[Desktop Entry]
-Name=Sanne DAW
-Exec=${BINARY_NAME}
-Icon=sanne-daw
-Type=Application
-Categories=AudioVideo;Audio;
-Terminal=false
-StartupWMClass=Ardour
-EOF
+          cat > "AppDir/${APP_NAME}.desktop" <<'EOF'
+          [Desktop Entry]
+          Name=Sanne DAW
+          Exec=ardour6
+          Icon=sanne-daw
+          Type=Application
+          Categories=AudioVideo;Audio;
+          Terminal=false
+          StartupWMClass=Ardour
+          EOF
+
+          sed -i 's/^          //' "AppDir/${APP_NAME}.desktop"
 
           desktop-file-validate "AppDir/${APP_NAME}.desktop"
 
@@ -97,12 +99,12 @@ EOF
         run: |
           set -euo pipefail
 
-          if [ ! -f "image.png" ]; then
+          if [ -f "image.png" ]; then
+            cp image.png AppDir/sanne-daw.png
+          else
             echo "❌ image.png not found in repository root"
             exit 1
           fi
-
-          cp image.png AppDir/sanne-daw.png
 
       - name: Create AppRun
         shell: bash
@@ -110,15 +112,17 @@ EOF
           set -euo pipefail
 
           cat > AppDir/AppRun <<EOF
-#!/usr/bin/env bash
-set -e
+          #!/usr/bin/env bash
+          set -e
 
-HERE="\$(dirname "\$(readlink -f "\$0")")"
+          HERE="\$(dirname "\$(readlink -f "\$0")")"
 
-export LD_LIBRARY_PATH="\$HERE/usr/lib:\$HERE/usr/lib64:\$HERE/usr/lib/x86_64-linux-gnu:\$LD_LIBRARY_PATH"
+          export LD_LIBRARY_PATH="\$HERE/usr/lib:\$HERE/usr/lib64:\$HERE/usr/lib/x86_64-linux-gnu:\$LD_LIBRARY_PATH"
 
-exec "\$HERE/usr/bin/${BINARY_NAME}" "\$@"
-EOF
+          exec "\$HERE/usr/bin/${BINARY_NAME}" "\$@"
+          EOF
+
+          sed -i 's/^          //' AppDir/AppRun
 
           chmod +x AppDir/AppRun
 
@@ -137,7 +141,7 @@ EOF
 
           export ARCH=x86_64
 
-          ./linuxdeploy.AppImage \
+          ./linuxdeploy \
             --appimage-extract-and-run \
             --appdir AppDir \
             --desktop-file "AppDir/${APP_NAME}.desktop" \
