@@ -17,8 +17,13 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Clone Ardour source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git clone --recursive https://github.com/Ardour/ardour.git source
 
       - name: Install build dependencies
         shell: bash
@@ -95,12 +100,16 @@ jobs:
         run: |
           set -euo pipefail
 
+          cd source
+
           ./waf configure
 
       - name: Build Ardour
         shell: bash
         run: |
           set -euo pipefail
+
+          cd source
 
           ./waf -j"$(nproc)"
 
@@ -110,14 +119,14 @@ jobs:
           set -euo pipefail
 
           echo "📂 Build tree:"
-          find build | sort || true
+          find source/build | sort || true
 
       - name: Locate Ardour binary
         shell: bash
         run: |
           set -euo pipefail
 
-          BIN_PATH=$(find build \
+          BIN_PATH=$(find source/build \
             -type f \
             \( -name "ardour6" -o -name "ardour7" -o -name "ardour8" \) \
             | head -n 1 || true)
@@ -147,12 +156,12 @@ jobs:
 
           chmod +x "AppDir/usr/bin/${BINARY_NAME}"
 
-          if [ -d "gtk2_ardour" ]; then
-            cp -r gtk2_ardour AppDir/usr/share/
+          if [ -d "source/gtk2_ardour" ]; then
+            cp -r source/gtk2_ardour AppDir/usr/share/
           fi
 
-          if [ -d "share" ]; then
-            cp -r share AppDir/usr/
+          if [ -d "source/share" ]; then
+            cp -r source/share AppDir/usr/
           fi
 
       - name: Add application icon
