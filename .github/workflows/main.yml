@@ -52,6 +52,7 @@ jobs:
             libaubio-dev \
             libsuil-dev \
             vamp-plugin-sdk \
+            librubberband-dev \
             liblrdf0-dev \
             lv2-dev \
             libserd-dev \
