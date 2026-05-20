@@ -1,4 +1,4 @@
-name: Build AppImage
+name: Build Ardour AppImage
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install build dependencies
         shell: bash
         run: |
           set -euo pipefail
@@ -26,13 +26,55 @@ jobs:
           sudo apt-get update
 
           sudo apt-get install -y \
+            build-essential \
+            git \
             wget \
             curl \
-            file \
-            desktop-file-utils \
+            python3 \
+            pkg-config \
+            libgtk2.0-dev \
+            libglib2.0-dev \
+            libxml2-dev \
+            libsndfile1-dev \
+            libboost-all-dev \
+            libasound2-dev \
+            libjack-jackd2-dev \
+            libcurl4-openssl-dev \
+            libarchive-dev \
+            libaubio-dev \
+            libsuil-dev \
+            vamp-plugin-sdk \
+            liblrdf0-dev \
+            lv2-dev \
+            libserd-dev \
+            libsord-dev \
+            libsratom-dev \
+            liblilv-dev \
+            libtag1-dev \
+            libsamplerate0-dev \
+            libfftw3-dev \
+            libusb-1.0-0-dev \
+            libhidapi-dev \
+            liblo-dev \
+            libcairomm-1.0-dev \
+            libpangomm-1.4-dev \
+            libatkmm-1.6-dev \
+            libgtkmm-2.4-dev \
+            libxml++2.6-dev \
+            libglibmm-2.4-dev \
+            libsigc++-2.0-dev \
+            libfreetype6-dev \
+            libx11-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libxcursor-dev \
+            libxcomposite-dev \
+            libxdamage-dev \
+            libxfixes-dev \
             libfuse2 \
             patchelf \
-            zsync
+            zsync \
+            file
 
       - name: Download linuxdeploy
         shell: bash
@@ -45,89 +87,85 @@ jobs:
 
           chmod +x linuxdeploy
 
-      - name: Debug repository structure
+      - name: Configure Ardour
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "📂 Root files:"
-          ls -lah
+          ./waf configure
 
-          echo ""
-          echo "📂 Full repository tree:"
-          find . | sort
+      - name: Build Ardour
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      #
-      # IMPORTANT:
-      # You currently DO NOT have a compiled Ardour build output.
-      # So this workflow now creates AppDir directly from your repository.
-      #
+          ./waf -j$(nproc)
+
+      - name: Locate Ardour binary
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BIN_PATH=$(find build \
+            -type f \
+            -name "${BINARY_NAME}" \
+            | head -n 1 || true)
+
+          if [ -z "$BIN_PATH" ]; then
+            echo "❌ Could not find compiled ${BINARY_NAME}"
+            find build | sort
+            exit 1
+          fi
+
+          echo "✅ Found binary:"
+          echo "$BIN_PATH"
+
+          echo "BIN_PATH=$BIN_PATH" >> $GITHUB_ENV
 
       - name: Prepare AppDir
         shell: bash
         run: |
           set -euo pipefail
 
+          rm -rf AppDir
+
           mkdir -p AppDir/usr/bin
           mkdir -p AppDir/usr/lib
           mkdir -p AppDir/usr/share
 
-          #
-          # Copy repository contents
-          #
-          cp -r ./* AppDir/usr/ || true
-
-          #
-          # If ardour6 exists somewhere, move it properly
-          #
-          ARDOUR_BIN=$(find AppDir/usr -type f -name "${BINARY_NAME}" | head -n 1 || true)
-
-          if [ -z "$ARDOUR_BIN" ]; then
-            echo "❌ Could not locate ${BINARY_NAME}"
-            echo ""
-            echo "📂 Available files:"
-            find AppDir/usr | sort
-            exit 1
-          fi
-
-          echo "✅ Found binary:"
-          echo "$ARDOUR_BIN"
-
-          cp "$ARDOUR_BIN" "AppDir/usr/bin/${BINARY_NAME}"
+          cp "$BIN_PATH" "AppDir/usr/bin/${BINARY_NAME}"
 
           chmod +x "AppDir/usr/bin/${BINARY_NAME}"
-
-      - name: Create desktop entry
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          cat > "AppDir/${APP_NAME}.desktop" <<'EOF'
-          [Desktop Entry]
-          Name=Sanne DAW
-          Exec=ardour6
-          Icon=sanne-daw
-          Type=Application
-          Categories=AudioVideo;Audio;
-          Terminal=false
-          StartupWMClass=Ardour
-          EOF
-
-          sed -i 's/^          //' "AppDir/${APP_NAME}.desktop"
-
-          desktop-file-validate "AppDir/${APP_NAME}.desktop"
 
       - name: Add application icon
         shell: bash
         run: |
           set -euo pipefail
 
-          if [ -f "image.png" ]; then
-            cp image.png AppDir/sanne-daw.png
-          else
+          if [ ! -f "image.png" ]; then
             echo "❌ image.png not found"
             exit 1
           fi
+
+          cp image.png AppDir/sanne-daw.png
+
+      - name: Create desktop entry
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > AppDir/${APP_NAME}.desktop <<EOF
+[Desktop Entry]
+Name=Sanne DAW
+Exec=${BINARY_NAME}
+Icon=sanne-daw
+Type=Application
+Categories=AudioVideo;Audio;
+Terminal=false
+StartupWMClass=Ardour
+EOF
+
+          desktop-file-validate AppDir/${APP_NAME}.desktop
 
       - name: Create AppRun
         shell: bash
@@ -135,27 +173,17 @@ jobs:
           set -euo pipefail
 
           cat > AppDir/AppRun <<EOF
-          #!/usr/bin/env bash
-          set -e
+#!/usr/bin/env bash
+set -e
 
-          HERE="\$(dirname "\$(readlink -f "\$0")")"
+HERE="\$(dirname "\$(readlink -f "\$0")")"
 
-          export LD_LIBRARY_PATH="\$HERE/usr/lib:\$HERE/usr/lib64:\$HERE/usr/lib/x86_64-linux-gnu:\$LD_LIBRARY_PATH"
+export LD_LIBRARY_PATH="\$HERE/usr/lib:\$HERE/usr/lib64:\$HERE/usr/lib/x86_64-linux-gnu:\$LD_LIBRARY_PATH"
 
-          exec "\$HERE/usr/bin/${BINARY_NAME}" "\$@"
-          EOF
-
-          sed -i 's/^          //' AppDir/AppRun
+exec "\$HERE/usr/bin/${BINARY_NAME}" "\$@"
+EOF
 
           chmod +x AppDir/AppRun
-
-      - name: Debug AppDir structure
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "📂 Final AppDir:"
-          find AppDir | sort
 
       - name: Build AppImage
         shell: bash
@@ -167,31 +195,11 @@ jobs:
           ./linuxdeploy \
             --appimage-extract-and-run \
             --appdir AppDir \
-            --desktop-file "AppDir/${APP_NAME}.desktop" \
+            --desktop-file AppDir/${APP_NAME}.desktop \
             --icon-file AppDir/sanne-daw.png \
             --output appimage
 
-      - name: Validate AppImage
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "📦 Generated files:"
-          ls -lah
-
-          APPIMAGE_FILE=$(find . -maxdepth 1 -name "*.AppImage" | head -n 1)
-
-          if [ -z "$APPIMAGE_FILE" ]; then
-            echo "❌ AppImage not generated"
-            exit 1
-          fi
-
-          chmod +x "$APPIMAGE_FILE"
-
-          echo "✅ AppImage created:"
-          echo "$APPIMAGE_FILE"
-
-      - name: Upload artifact
+      - name: Upload AppImage
         uses: actions/upload-artifact@v4
         with:
           name: Sanne-DAW-AppImage
