@@ -45,60 +45,55 @@ jobs:
 
           chmod +x linuxdeploy
 
-      - name: Debug repository contents
+      - name: Debug repository structure
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "📂 Repository root:"
+          echo "📂 Root files:"
           ls -lah
 
           echo ""
-          echo "📂 Recursive listing:"
+          echo "📂 Full repository tree:"
           find . | sort
+
+      #
+      # IMPORTANT:
+      # You currently DO NOT have a compiled Ardour build output.
+      # So this workflow now creates AppDir directly from your repository.
+      #
 
       - name: Prepare AppDir
         shell: bash
         run: |
           set -euo pipefail
 
-          mkdir -p AppDir/usr
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/lib
+          mkdir -p AppDir/usr/share
 
-          # Try common build output directories
-          if [ -d "dist" ]; then
-            echo "✅ Using dist/"
-            cp -r dist/. AppDir/usr/
+          #
+          # Copy repository contents
+          #
+          cp -r ./* AppDir/usr/ || true
 
-          elif [ -d "build" ]; then
-            echo "✅ Using build/"
-            cp -r build/. AppDir/usr/
+          #
+          # If ardour6 exists somewhere, move it properly
+          #
+          ARDOUR_BIN=$(find AppDir/usr -type f -name "${BINARY_NAME}" | head -n 1 || true)
 
-          elif [ -d "release" ]; then
-            echo "✅ Using release/"
-            cp -r release/. AppDir/usr/
-
-          else
-            echo "❌ No dist/, build/, or release/ directory found"
-            exit 1
-          fi
-
-      - name: Validate Ardour binary
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "📂 Listing binaries:"
-          find AppDir/usr/bin -type f || true
-
-          if [ ! -f "AppDir/usr/bin/${BINARY_NAME}" ]; then
-            echo "❌ Binary AppDir/usr/bin/${BINARY_NAME} not found"
-
+          if [ -z "$ARDOUR_BIN" ]; then
+            echo "❌ Could not locate ${BINARY_NAME}"
             echo ""
             echo "📂 Available files:"
             find AppDir/usr | sort
-
             exit 1
           fi
+
+          echo "✅ Found binary:"
+          echo "$ARDOUR_BIN"
+
+          cp "$ARDOUR_BIN" "AppDir/usr/bin/${BINARY_NAME}"
 
           chmod +x "AppDir/usr/bin/${BINARY_NAME}"
 
@@ -130,7 +125,7 @@ jobs:
           if [ -f "image.png" ]; then
             cp image.png AppDir/sanne-daw.png
           else
-            echo "❌ image.png not found in repository root"
+            echo "❌ image.png not found"
             exit 1
           fi
 
@@ -159,7 +154,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "📂 AppDir structure:"
+          echo "📂 Final AppDir:"
           find AppDir | sort
 
       - name: Build AppImage
@@ -176,7 +171,7 @@ jobs:
             --icon-file AppDir/sanne-daw.png \
             --output appimage
 
-      - name: Validate generated AppImage
+      - name: Validate AppImage
         shell: bash
         run: |
           set -euo pipefail
@@ -187,16 +182,16 @@ jobs:
           APPIMAGE_FILE=$(find . -maxdepth 1 -name "*.AppImage" | head -n 1)
 
           if [ -z "$APPIMAGE_FILE" ]; then
-            echo "❌ AppImage was not generated"
+            echo "❌ AppImage not generated"
             exit 1
           fi
 
           chmod +x "$APPIMAGE_FILE"
 
-          echo "✅ AppImage generated:"
+          echo "✅ AppImage created:"
           echo "$APPIMAGE_FILE"
 
-      - name: Upload AppImage artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: Sanne-DAW-AppImage
