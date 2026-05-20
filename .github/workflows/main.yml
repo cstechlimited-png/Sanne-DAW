@@ -45,6 +45,18 @@ jobs:
 
           chmod +x linuxdeploy
 
+      - name: Debug repository contents
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "📂 Repository root:"
+          ls -lah
+
+          echo ""
+          echo "📂 Recursive listing:"
+          find . | sort
+
       - name: Prepare AppDir
         shell: bash
         run: |
@@ -52,12 +64,23 @@ jobs:
 
           mkdir -p AppDir/usr
 
-          if [ ! -d "dist" ]; then
-            echo "❌ dist directory not found"
+          # Try common build output directories
+          if [ -d "dist" ]; then
+            echo "✅ Using dist/"
+            cp -r dist/. AppDir/usr/
+
+          elif [ -d "build" ]; then
+            echo "✅ Using build/"
+            cp -r build/. AppDir/usr/
+
+          elif [ -d "release" ]; then
+            echo "✅ Using release/"
+            cp -r release/. AppDir/usr/
+
+          else
+            echo "❌ No dist/, build/, or release/ directory found"
             exit 1
           fi
-
-          cp -r dist/. AppDir/usr/
 
       - name: Validate Ardour binary
         shell: bash
@@ -69,6 +92,11 @@ jobs:
 
           if [ ! -f "AppDir/usr/bin/${BINARY_NAME}" ]; then
             echo "❌ Binary AppDir/usr/bin/${BINARY_NAME} not found"
+
+            echo ""
+            echo "📂 Available files:"
+            find AppDir/usr | sort
+
             exit 1
           fi
 
