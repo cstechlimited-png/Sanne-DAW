@@ -6,6 +6,9 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build-appimage:
     runs-on: ubuntu-22.04
@@ -17,6 +20,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
 
       - name: Install build dependencies
         shell: bash
@@ -129,8 +136,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "📂 AppDir structure:"
-          find AppDir | sort
+          echo "AppDir tree:"
+          find AppDir | sort || true
+
+          echo "AppDir/usr/bin contents:"
+          find AppDir/usr/bin -maxdepth 1 -type f -o -type l | sort || true
 
       - name: Locate installed Ardour binary
         shell: bash
@@ -147,16 +157,12 @@ jobs:
 
           if [ -z "$BIN_PATH" ]; then
             echo "❌ Could not locate installed Ardour executable in AppDir/usr/bin"
-            echo "Contents of AppDir/usr/bin:"
-            find AppDir/usr/bin -maxdepth 1 -type f -o -type l | sort || true
             exit 1
           fi
 
           BIN_NAME="$(basename "$BIN_PATH")"
 
-          echo "✅ Found binary:"
-          echo "$BIN_PATH"
-
+          echo "Found binary: $BIN_PATH"
           echo "BIN_PATH=$BIN_PATH" >> "$GITHUB_ENV"
           echo "BIN_NAME=$BIN_NAME" >> "$GITHUB_ENV"
 
@@ -230,7 +236,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "📦 Generated files:"
+          echo "Generated files:"
           ls -lah
 
           APPIMAGE="$(find . -maxdepth 1 -name "*.AppImage" | head -n 1 || true)"
@@ -241,8 +247,6 @@ jobs:
           fi
 
           mv "$APPIMAGE" "${APP_NAME}.AppImage"
-
-          echo "✅ AppImage generated:"
           ls -lah "${APP_NAME}.AppImage"
 
       - name: Upload AppImage
