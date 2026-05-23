@@ -12,18 +12,11 @@ jobs:
 
     env:
       APP_NAME: Sanne-DAW
-      BINARY_NAME: ardour6
+      ICON_NAME: sanne-daw
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Clone Ardour source
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          git clone --recursive https://github.com/Ardour/ardour.git source
 
       - name: Install build dependencies
         shell: bash
@@ -37,12 +30,20 @@ jobs:
             git \
             wget \
             curl \
+            file \
+            zsync \
+            patchelf \
             python3 \
             python3-dev \
             pkg-config \
+            desktop-file-utils \
+            appstream \
+            libfuse2 \
             libgtk2.0-dev \
             libglib2.0-dev \
+            libglibmm-2.4-dev \
             libxml2-dev \
+            libxml++2.6-dev \
             libsndfile1-dev \
             libboost-all-dev \
             libasound2-dev \
@@ -68,9 +69,6 @@ jobs:
             libcairomm-1.0-dev \
             libpangomm-1.4-dev \
             libatkmm-1.6-dev \
-            libgtkmm-2.4-dev \
-            libxml++2.6-dev \
-            libglibmm-2.4-dev \
             libsigc++-2.0-dev \
             libfreetype6-dev \
             libx11-dev \
@@ -79,11 +77,7 @@ jobs:
             libxcursor-dev \
             libxcomposite-dev \
             libxdamage-dev \
-            libxfixes-dev \
-            libfuse2 \
-            patchelf \
-            zsync \
-            file
+            libxfixes-dev
 
       - name: Download linuxdeploy
         shell: bash
@@ -92,9 +86,16 @@ jobs:
 
           wget -q \
             https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage \
-            -O linuxdeploy
+            -O linuxdeploy.AppImage
 
-          chmod +x linuxdeploy
+          chmod +x linuxdeploy.AppImage
+
+      - name: Clone Ardour source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git clone --recursive https://github.com/Ardour/ardour.git source
 
       - name: Configure Ardour
         shell: bash
@@ -102,8 +103,7 @@ jobs:
           set -euo pipefail
 
           cd source
-
-          ./waf configure
+          ./waf configure --strict --with-backends=alsa,jack,dummy
 
       - name: Build Ardour
         shell: bash
@@ -111,59 +111,54 @@ jobs:
           set -euo pipefail
 
           cd source
-
           ./waf -j"$(nproc)"
 
-      - name: Debug build output
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "📂 Build tree:"
-          find source/build | sort || true
-
-      - name: Locate Ardour binary
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          BIN_PATH=$(find source/build \
-            -type f \
-            \( -name "ardour6" -o -name "ardour7" -o -name "ardour8" \) \
-            | head -n 1 || true)
-
-          if [ -z "$BIN_PATH" ]; then
-            echo "❌ Could not locate Ardour executable"
-            exit 1
-          fi
-
-          echo "✅ Found binary:"
-          echo "$BIN_PATH"
-
-          echo "BIN_PATH=$BIN_PATH" >> "$GITHUB_ENV"
-
-      - name: Prepare AppDir
+      - name: Install into AppDir
         shell: bash
         run: |
           set -euo pipefail
 
           rm -rf AppDir
+          mkdir -p AppDir
 
-          mkdir -p AppDir/usr/bin
-          mkdir -p AppDir/usr/lib
-          mkdir -p AppDir/usr/share
+          cd source
+          DESTDIR="$GITHUB_WORKSPACE/AppDir" ./waf install
 
-          cp "$BIN_PATH" "AppDir/usr/bin/${BINARY_NAME}"
+      - name: Debug installed files
+        shell: bash
+        run: |
+          set -euo pipefail
 
-          chmod +x "AppDir/usr/bin/${BINARY_NAME}"
+          echo "📂 AppDir structure:"
+          find AppDir | sort
 
-          if [ -d "source/gtk2_ardour" ]; then
-            cp -r source/gtk2_ardour AppDir/usr/share/
+      - name: Locate installed Ardour binary
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BIN_PATH="$(find AppDir/usr/bin -maxdepth 1 -type f -perm -111 \
+            \( -name 'ardour' -o -name 'ardour[0-9]*' \) \
+            | sort -V | head -n 1 || true)"
+
+          if [ -z "$BIN_PATH" ]; then
+            BIN_PATH="$(find AppDir/usr/bin -maxdepth 1 -type f -perm -111 | sort | head -n 1 || true)"
           fi
 
-          if [ -d "source/share" ]; then
-            cp -r source/share AppDir/usr/
+          if [ -z "$BIN_PATH" ]; then
+            echo "❌ Could not locate installed Ardour executable in AppDir/usr/bin"
+            echo "Contents of AppDir/usr/bin:"
+            find AppDir/usr/bin -maxdepth 1 -type f -o -type l | sort || true
+            exit 1
           fi
+
+          BIN_NAME="$(basename "$BIN_PATH")"
+
+          echo "✅ Found binary:"
+          echo "$BIN_PATH"
+
+          echo "BIN_PATH=$BIN_PATH" >> "$GITHUB_ENV"
+          echo "BIN_NAME=$BIN_NAME" >> "$GITHUB_ENV"
 
       - name: Add application icon
         shell: bash
@@ -171,59 +166,50 @@ jobs:
           set -euo pipefail
 
           if [ ! -f "image.png" ]; then
-            echo "❌ image.png not found"
+            echo "❌ image.png not found in repository root"
             exit 1
           fi
 
-          cp image.png AppDir/sanne-daw.png
+          cp image.png "AppDir/${ICON_NAME}.png"
+          mkdir -p "AppDir/usr/share/icons/hicolor/256x256/apps"
+          cp image.png "AppDir/usr/share/icons/hicolor/256x256/apps/${ICON_NAME}.png"
 
       - name: Create desktop entry
         shell: bash
         run: |
           set -euo pipefail
 
-          cat > AppDir/${APP_NAME}.desktop <<'EOF'
+          cat > "AppDir/${APP_NAME}.desktop" <<EOF
           [Desktop Entry]
-          Name=Sanne DAW
-          Exec=ardour6
-          Icon=sanne-daw
           Type=Application
+          Name=Sanne DAW
+          Exec=${BIN_NAME}
+          Icon=${ICON_NAME}
           Categories=AudioVideo;Audio;
           Terminal=false
           StartupWMClass=Ardour
           EOF
 
-          sed -i 's/^          //' AppDir/${APP_NAME}.desktop
-
-          desktop-file-validate AppDir/${APP_NAME}.desktop
+          desktop-file-validate "AppDir/${APP_NAME}.desktop"
 
       - name: Create AppRun
         shell: bash
         run: |
           set -euo pipefail
 
-          cat > AppDir/AppRun <<'EOF'
+          cat > AppDir/AppRun <<EOF
           #!/usr/bin/env bash
-          set -e
-
-          HERE="$(dirname "$(readlink -f "$0")")"
-
-          export LD_LIBRARY_PATH="$HERE/usr/lib:$HERE/usr/lib64:$HERE/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"
-
-          exec "$HERE/usr/bin/ardour6" "$@"
-          EOF
-
-          sed -i 's/^          //' AppDir/AppRun
-
-          chmod +x AppDir/AppRun
-
-      - name: Debug AppDir
-        shell: bash
-        run: |
           set -euo pipefail
 
-          echo "📂 AppDir structure:"
-          find AppDir | sort
+          HERE="\$(dirname "\$(readlink -f "\$0")")"
+
+          export LD_LIBRARY_PATH="\$HERE/usr/lib:\$HERE/usr/lib64:\$HERE/usr/lib/x86_64-linux-gnu:\${LD_LIBRARY_PATH:-}"
+          export XDG_DATA_DIRS="\$HERE/usr/share:\${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+
+          exec "\$HERE/usr/bin/${BIN_NAME}" "\$@"
+          EOF
+
+          chmod +x AppDir/AppRun
 
       - name: Build AppImage
         shell: bash
@@ -232,11 +218,11 @@ jobs:
 
           export ARCH=x86_64
 
-          ./linuxdeploy \
+          ./linuxdeploy.AppImage \
             --appimage-extract-and-run \
             --appdir AppDir \
-            --desktop-file AppDir/${APP_NAME}.desktop \
-            --icon-file AppDir/sanne-daw.png \
+            --desktop-file "AppDir/${APP_NAME}.desktop" \
+            --icon-file "AppDir/${ICON_NAME}.png" \
             --output appimage
 
       - name: Validate generated AppImage
@@ -247,18 +233,21 @@ jobs:
           echo "📦 Generated files:"
           ls -lah
 
-          APPIMAGE=$(find . -maxdepth 1 -name "*.AppImage" | head -n 1)
+          APPIMAGE="$(find . -maxdepth 1 -name "*.AppImage" | head -n 1 || true)"
 
           if [ -z "$APPIMAGE" ]; then
             echo "❌ AppImage not generated"
             exit 1
           fi
 
+          mv "$APPIMAGE" "${APP_NAME}.AppImage"
+
           echo "✅ AppImage generated:"
-          echo "$APPIMAGE"
+          ls -lah "${APP_NAME}.AppImage"
 
       - name: Upload AppImage
         uses: actions/upload-artifact@v4
         with:
           name: Sanne-DAW-AppImage
-          path: "*.AppImage"
+          path: Sanne-DAW.AppImage
+          if-no-files-found: error
